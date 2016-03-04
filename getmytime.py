@@ -10,7 +10,9 @@ import json
 import logging
 import requests
 import sys
+import time
 
+from itertools import groupby
 from datetime import datetime, timedelta
 
 
@@ -85,50 +87,88 @@ class GetMyTimeApi(object):
                             'intTaskListID', 'strTaskName'),
         }
 
-    def ls(self, startdate):
-        #time.sleep(1)
+    def fetch_entries(self, startdate, enddate):
+        curdate = startdate
 
-        employeeid = self.cookies['userid']
-        startdate = '{:%m/%d/%Y}'.format(startdate)
+        while curdate < enddate:
+            time.sleep(1)
 
-        params = {
-            'object': 'getmytime.api.timeentrymanager',
-            'method': 'fetchTimeEntries',
-        }
-        form_data = {
-            'employeeid': employeeid,
-            'startdate': startdate,
-        }
+            params = {
+                'object': 'getmytime.api.timeentrymanager',
+                'method': 'fetchTimeEntries',
+            }
+            form_data = {
+                'employeeid': self.cookies['userid'],
+                'startdate': '{:%m/%d/%Y}'.format(curdate),
+            }
 
-        r = requests.post(self.URL, params=params, data=form_data,
-                          cookies=self.cookies)
+            r = requests.post(self.URL, params=params, data=form_data,
+                              cookies=self.cookies)
 
-        if 'error' in r.text:
-            raise GetMyTimeError(r.text)
+            if 'error' in r.text:
+                raise GetMyTimeError(r.text)
 
-        payload = r.json()
+            payload = r.json()
+            yield payload['rows']
 
+            curdate += timedelta(days=7)
+
+    def parse_entries(self, rows):
         jobs = self.lookups['jobs']
         tasks = self.lookups['tasks']
+        for row in rows:
+            minutes = int(row['intMinutes'])
+            hrs, mins = self.format_minutes(minutes)
+            yield {
+                'id': row['intTimeEntryID'],
+                'billable': '$' if row['blnBillable'] == 'True' else ' ',
+                'approved': '*' if row['blnApproved'] == 'True' else ' ',
+                'job': jobs[row['intClientJobListID']],
+                'task': tasks[row['intTaskListID']],
+                'comments': row['strComments'].replace('\n', ' '),
+                'entry_date': datetime.strptime(row['dtmTimeWorkedDate'],
+                                                '%m/%d/%Y %I:%M:%S %p'),
+                'minutes': minutes,
+                'minutes_str': mins,
+                'hours_str': hrs,
+            }
 
-        def parse_lines():
-            for row in payload['rows']:
-                yield {
-                    'id': row['intTimeEntryID'],
-                    'billable': '$' if row['blnBillable'] == 'True' else ' ',
-                    'approved': '*' if row['blnApproved'] == 'True' else ' ',
-                    'job': jobs[row['intClientJobListID']],
-                    'task': tasks[row['intTaskListID']],
-                    'comments': row['strComments'].replace('\n', ' '),
-                    'entry_date': datetime.strptime(row['dtmTimeWorkedDate'],
-                                                    '%m/%d/%Y %I:%M:%S %p'),
-                    'minutes': row['intMinutes'] + 'm',
-                }
+    def format_minutes(self, minutes):
+        hours = minutes // 60
+        minutes -= hours * 60
+        return (str(hours) + 'h' if hours > 0 else '',
+                str(minutes) + 'm' if minutes > 0 else '')
 
-        lines = sorted(parse_lines(), key=lambda line: line['entry_date'])
-        for line in lines:
-            print(('{id}{approved} {billable} {entry_date:%Y-%m-%d} '
-                   '{minutes:4} {job} ({task}) {comments}').format(**line))
+    def ls(self, xentries):
+        for entries in xentries:
+            lines = self.parse_entries(entries)
+            lines = sorted(lines, key=lambda line: line['entry_date'])
+            line_tmpl = '{id} {approved}{billable} {entry_date:%Y-%m-%d} ' \
+                        '{hours_str:>3}{minutes_str:>3} {job} ({task}) ' \
+                        '{comments}'
+
+            for line in lines:
+                print(line_tmpl.format(**line))
+
+            sys.stdout.flush()
+
+    def ls_total(self, xentries):
+        grand_total = 0
+
+        for entries in xentries:
+            lines = self.parse_entries(entries)
+            lines = sorted(lines, key=lambda line: line['entry_date'])
+            lines_by_day = groupby(lines, key=lambda line: line['entry_date'])
+
+            for entry_date, lines in lines_by_day:
+                total = sum(line['minutes'] for line in lines)
+                hrs, mins = self.format_minutes(total)
+                grand_total += total
+                print('{:%Y-%m-%d} {:>3}{:>3}'.format(entry_date, hrs, mins))
+            sys.stdout.flush()
+
+        hrs, mins = self.format_minutes(grand_total)
+        print('{:>14}{:>3}'.format(hrs, mins))
 
     def rm(self, ids):
         # time.sleep(1)
@@ -151,6 +191,8 @@ def main():
 
     parser1 = subparsers.add_parser('ls')
     parser1.add_argument('--startdate')
+    parser1.add_argument('--enddate')
+    parser1.add_argument('--total', action='store_true')
     parser1.set_defaults(cmd='ls')
 
     parser2 = subparsers.add_parser('rm')
@@ -167,9 +209,22 @@ def main():
         api.login(username, password)
 
         if args.cmd == 'ls':
-            startdate = parse_date(args.startdate,
-                                   default=datetime.now() - timedelta(days=7))
-            api.ls(startdate)
+            if args.startdate:
+                startdate = datetime.strptime(args.startdate, '%Y-%m-%d')
+            else:
+                startdate = datetime.now() - timedelta(days=7)
+
+            if args.enddate:
+                enddate = datetime.strptime(args.enddate, '%Y-%m-%d')
+            else:
+                enddate = startdate + timedelta(days=7)
+
+            entries = api.fetch_entries(startdate, enddate)
+
+            if args.total:
+                api.ls_total(entries)
+            else:
+                api.ls(entries)
         elif args.cmd == 'rm':
             api.rm(args.ids)
 
