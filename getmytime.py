@@ -55,9 +55,10 @@ class GetMyTimeApi(object):
         }
 
         r = requests.post(self.URL, params=params, data=form_data)
+        payload = r.json()
 
-        if 'Incorrect' in r.text:
-            raise GetMyTimeError(r.text)
+        if 'error' in payload:
+            raise GetMyTimeError(payload)
 
         self.cookies = r.cookies
         self.fetch_lookups()
@@ -105,11 +106,16 @@ class GetMyTimeApi(object):
             r = requests.post(self.URL, params=params, data=form_data,
                               cookies=self.cookies)
 
-            if 'error' in r.text:
-                raise GetMyTimeError(r.text)
-
             payload = r.json()
-            yield payload['rows']
+
+            if 'error' in payload:
+                raise GetMyTimeError(payload)
+
+            try:
+                yield payload['rows']
+            except KeyError:
+                # No records were found.
+                raise GetMyTimeError(payload)
 
             curdate += timedelta(days=7)
 
@@ -182,7 +188,12 @@ class GetMyTimeApi(object):
             }
             r = requests.post(self.URL, params=params, data=form_data,
                               cookies=self.cookies)
-            log.debug(r.text)
+
+            payload = r.json()
+
+            if 'error' in payload:
+                raise GetMyTimeError(payload)
+            print(r.text)
 
 
 def main():
@@ -225,13 +236,20 @@ def main():
                 api.ls_total(entries)
             else:
                 api.ls(entries)
+
         elif args.cmd == 'rm':
             api.rm(args.ids)
 
     except GetMyTimeError as ex:
-        data = json.loads(ex.message)
-        code, message = data['error']['code'], data['error']['message']
-        print('{} {}'.format(code, message))
+        data = ex.message
+        if 'message' in data:
+            log.error('{}'.format(data['message']))
+        elif 'error' in data:
+            code = data['error']['code']
+            message = data['error']['message']
+            log.error('{} {}'.format(code, message))
+        else:
+            log.exception(ex)
         sys.exit(1)
 
 
