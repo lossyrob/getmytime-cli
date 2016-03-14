@@ -5,14 +5,14 @@ from __future__ import unicode_literals
 from __future__ import division
 
 import os
+import sys
 import argparse
 import json
 import logging
 import requests
-import sys
 import time
+import itertools
 
-from itertools import groupby
 from datetime import datetime, timedelta
 
 
@@ -112,10 +112,18 @@ class GetMyTimeApi(object):
                 raise GetMyTimeError(payload)
 
             try:
-                yield payload['rows']
+                rows = payload['rows']
             except KeyError:
                 # No records were found.
                 raise GetMyTimeError(payload)
+
+            by_date = lambda entry: entry['entry_date']
+            entries = self.parse_entries(payload['rows'])
+            entries = sorted(entries, key=by_date)
+
+            for entry in entries:
+                if entry['entry_date'] < enddate:
+                    yield entry
 
             curdate += timedelta(days=7)
 
@@ -127,8 +135,10 @@ class GetMyTimeApi(object):
             hrs, mins = self.format_minutes(minutes)
             yield {
                 'id': row['intTimeEntryID'],
-                'billable': '$' if row['blnBillable'] == 'True' else ' ',
-                'approved': '*' if row['blnApproved'] == 'True' else ' ',
+                'billable': 'Yes' if row['blnBillable'] == 'True' else 'No ',
+                'approved': 'Yes' if row['blnApproved'] == 'True' else 'No ',
+                'billable_sym': '$' if row['blnBillable'] == 'True' else ' ',
+                'approved_sym': '*' if row['blnApproved'] == 'True' else ' ',
                 'job': jobs[row['intClientJobListID']],
                 'task': tasks[row['intTaskListID']],
                 'comments': row['strComments'].replace('\n', ' '),
@@ -145,40 +155,54 @@ class GetMyTimeApi(object):
         return (str(hours) + 'h' if hours > 0 else '',
                 str(minutes) + 'm' if minutes > 0 else '')
 
-    def ls(self, xentries):
-        for entries in xentries:
-            lines = self.parse_entries(entries)
-            lines = sorted(lines, key=lambda line: line['entry_date'])
-            line_tmpl = '{id} {approved}{billable} {entry_date:%Y-%m-%d} ' \
-                        '{hours_str:>3}{minutes_str:>3} {job} ({task}) ' \
-                        '{comments}'
+    def get_ls_tmpl(self, show_comments, oneline):
+        if oneline:
+            tmpl = '{id} {entry_date:%Y-%m-%d} {approved_sym}{billable_sym} ' \
+                   '{hours_str:>3}{minutes_str:>3} {job} > {task}'
+            if show_comments:
+                tmpl += '; Notes: {comments}'
+        else:
+            tmpl = 'ID: {id}\nDate: {entry_date:%Y-%m-%d}\nBillable: {billable}\n' \
+                   'Approved: {approved}\nJob: {job}\nTask: {task}\n' \
+                   'Duration: {hours_str}{minutes_str}\nNotes: {comments}\n'
+        return tmpl
 
-            for line in lines:
-                print(line_tmpl.format(**line))
 
-            sys.stdout.flush()
+    def ls(self, entries, show_comments=False, oneline=False, custom_tmpl=None):
+        if custom_tmpl:
+            tmpl = custom_tmpl
+        else:
+            tmpl = self.get_ls_tmpl(show_comments, oneline)
 
-    def ls_total(self, xentries):
+        for entry in entries:
+            print(tmpl.format(**entry))
+        sys.stdout.flush()
+
+    def ls_total(self, entries):
         grand_total = 0
-
-        for entries in xentries:
-            lines = self.parse_entries(entries)
-            lines = sorted(lines, key=lambda line: line['entry_date'])
-            lines_by_day = groupby(lines, key=lambda line: line['entry_date'])
-
-            for entry_date, lines in lines_by_day:
-                total = sum(line['minutes'] for line in lines)
-                hrs, mins = self.format_minutes(total)
-                grand_total += total
-                print('{:%Y-%m-%d} {:>3}{:>3}'.format(entry_date, hrs, mins))
-            sys.stdout.flush()
+        by_date = lambda entry: entry['entry_date']
+        entries_by_date = itertools.groupby(entries, key=by_date)
+        for entry_date, entries in entries_by_date:
+            total = sum(entry['minutes'] for entry in entries)
+            hrs, mins = self.format_minutes(total)
+            grand_total += total
+            print('{:%Y-%m-%d} {:>3}{:>3}'.format(entry_date, hrs, mins))
+        sys.stdout.flush()
 
         hrs, mins = self.format_minutes(grand_total)
         print('{:>14}{:>3}'.format(hrs, mins))
 
-    def rm(self, ids):
+    def rm(self, ids, dry_run=False):
         # time.sleep(1)
+
+        total = 0
+
         for id in ids:
+            log.debug('Deleting {}'.format(id))
+
+            if dry_run:
+                continue
+
             params = {
                 'object': 'getmytime.api.timeentrymanager',
                 'method': 'deleteTimeEntry',
@@ -186,6 +210,7 @@ class GetMyTimeApi(object):
             form_data = {
                 'timeentryid': id,
             }
+
             r = requests.post(self.URL, params=params, data=form_data,
                               cookies=self.cookies)
 
@@ -193,7 +218,11 @@ class GetMyTimeApi(object):
 
             if 'error' in payload:
                 raise GetMyTimeError(payload)
-            print(r.text)
+
+            log.info(r.text)
+            total += 1
+
+        print('Deleted {} record(s)'.format(total))
 
 
 def main():
@@ -201,13 +230,17 @@ def main():
     subparsers = parser.add_subparsers(help='sub-command help')
 
     parser1 = subparsers.add_parser('ls')
-    parser1.add_argument('--startdate')
-    parser1.add_argument('--enddate')
-    parser1.add_argument('--total', action='store_true')
+    parser1.add_argument('--startdate', help='format: YYYY-MM-DD, inclusive (default: today)')
+    parser1.add_argument('--enddate', help='format: YYYY-MM-DD, exclusive (default: startdate + 7 days)')
+    parser1.add_argument('--comments', action='store_true', help='show comments (only relevant for --oneline)')
+    parser1.add_argument('--oneline', action='store_true', help='output single line per time entry')
+    parser1.add_argument('--tmpl', type=str, help='custom template per time entry')
+    parser1.add_argument('--total', action='store_true', help='show daily and weekly totals')
     parser1.set_defaults(cmd='ls')
 
     parser2 = subparsers.add_parser('rm')
-    parser2.add_argument('ids', type=int, nargs='+')
+    parser2.add_argument('ids', type=int, nargs='*')
+    parser2.add_argument('--dry-run', action='store_true', help='do nothing destructive (useful for testing)')
     parser2.set_defaults(cmd='rm')
 
     args = parser.parse_args()
@@ -223,7 +256,8 @@ def main():
             if args.startdate:
                 startdate = datetime.strptime(args.startdate, '%Y-%m-%d')
             else:
-                startdate = datetime.now() - timedelta(days=7)
+                # Subtract 6 days so time entries from today appear by default.
+                startdate = datetime.now() - timedelta(days=6)
 
             if args.enddate:
                 enddate = datetime.strptime(args.enddate, '%Y-%m-%d')
@@ -235,10 +269,13 @@ def main():
             if args.total:
                 api.ls_total(entries)
             else:
-                api.ls(entries)
+                api.ls(entries,
+                       show_comments=args.comments,
+                       oneline=args.oneline,
+                       custom_tmpl=args.tmpl)
 
         elif args.cmd == 'rm':
-            api.rm(args.ids)
+            api.rm(args.ids, dry_run=args.dry_run)
 
     except GetMyTimeError as ex:
         data = ex.message
