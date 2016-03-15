@@ -5,6 +5,7 @@ from __future__ import unicode_literals
 from __future__ import division
 
 import os
+import re
 import sys
 import argparse
 import json
@@ -12,9 +13,12 @@ import logging
 import requests
 import time
 import itertools
+import fileinput
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
+
+ID_REGEX = re.compile('(?P<id>\d{8})')
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.StreamHandler(sys.stderr))
@@ -27,12 +31,6 @@ def getenv(key):
     except KeyError:
         print('Environmental variable required: ' + key)
         sys.exit(1)
-
-
-def parse_date(value, default=None):
-    if not value:
-        return default
-    return datetime.strptime(value, '%Y-%m-%d')
 
 
 class GetMyTimeError(Exception):
@@ -88,10 +86,10 @@ class GetMyTimeApi(object):
                             'intTaskListID', 'strTaskName'),
         }
 
-    def fetch_entries(self, startdate, enddate):
-        curdate = startdate
+    def fetch_entries(self, start_date, end_date):
+        curdate = start_date
 
-        while curdate < enddate:
+        while curdate < end_date:
             time.sleep(1)
 
             params = {
@@ -122,7 +120,7 @@ class GetMyTimeApi(object):
             entries = sorted(entries, key=by_date)
 
             for entry in entries:
-                if entry['entry_date'] < enddate:
+                if entry['entry_date'] < end_date:
                     yield entry
 
             curdate += timedelta(days=7)
@@ -174,8 +172,11 @@ class GetMyTimeApi(object):
         else:
             tmpl = self.get_ls_tmpl(show_comments, oneline)
 
-        for entry in entries:
-            print(tmpl.format(**entry))
+        try:
+            for entry in entries:
+                print(tmpl.format(**entry))
+        except KeyError as ex:
+            log.error('Invalid template: Time entries do not have a "{}" field.'.format(ex.message))
         sys.stdout.flush()
 
     def ls_total(self, entries):
@@ -194,7 +195,6 @@ class GetMyTimeApi(object):
 
     def rm(self, ids, dry_run=False):
         # time.sleep(1)
-
         total = 0
 
         for id in ids:
@@ -225,6 +225,34 @@ class GetMyTimeApi(object):
         print('Deleted {} record(s)'.format(total))
 
 
+def detect_ids(lines):
+    """Return list of ids scraped from each line in lines"""
+    for line in lines:
+        match = ID_REGEX.search(line)
+        if match:
+            yield int(match.group('id'))
+
+
+def get_date_range(args):
+    if args.today:
+        start_date = date.today()
+        end_date = start_date + timedelta(days=1)
+        return start_date, end_date
+
+    if args.startdate:
+        start_date = datetime.strptime(args.startdate, '%Y-%m-%d')
+    else:
+        # Subtract 6 days so time entries from today appear by default.
+        start_date = datetime.now() - timedelta(days=6)
+
+    if args.enddate:
+        end_date = datetime.strptime(args.enddate, '%Y-%m-%d')
+    else:
+        end_date = start_date + timedelta(days=7)
+
+    return start_date, end_date
+
+
 def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(help='sub-command help')
@@ -232,6 +260,7 @@ def main():
     parser1 = subparsers.add_parser('ls')
     parser1.add_argument('--startdate', help='format: YYYY-MM-DD, inclusive (default: today)')
     parser1.add_argument('--enddate', help='format: YYYY-MM-DD, exclusive (default: startdate + 7 days)')
+    parser1.add_argument('--today', action='store_true', help='show results for today only (overrides --startdate and --enddate)')
     parser1.add_argument('--comments', action='store_true', help='show comments (only relevant for --oneline)')
     parser1.add_argument('--oneline', action='store_true', help='output single line per time entry')
     parser1.add_argument('--tmpl', type=str, help='custom template per time entry')
@@ -253,18 +282,8 @@ def main():
         api.login(username, password)
 
         if args.cmd == 'ls':
-            if args.startdate:
-                startdate = datetime.strptime(args.startdate, '%Y-%m-%d')
-            else:
-                # Subtract 6 days so time entries from today appear by default.
-                startdate = datetime.now() - timedelta(days=6)
-
-            if args.enddate:
-                enddate = datetime.strptime(args.enddate, '%Y-%m-%d')
-            else:
-                enddate = startdate + timedelta(days=7)
-
-            entries = api.fetch_entries(startdate, enddate)
+            start_date, end_date = get_date_range(args)
+            entries = api.fetch_entries(start_date, end_date)
 
             if args.total:
                 api.ls_total(entries)
@@ -275,7 +294,8 @@ def main():
                        custom_tmpl=args.tmpl)
 
         elif args.cmd == 'rm':
-            api.rm(args.ids, dry_run=args.dry_run)
+            ids = args.ids if args.ids else detect_ids(fileinput.input('-'))
+            api.rm(ids, dry_run=args.dry_run)
 
     except GetMyTimeError as ex:
         data = ex.message
