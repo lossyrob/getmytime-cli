@@ -54,7 +54,7 @@ class GetMyTimeApi(object):
     URL = 'https://app.getmytime.com/service.aspx'
 
     def login(self, username, password):
-        # time.sleep(1)
+        time.sleep(1)
 
         params = {
             'object': 'getmytime.api.usermanager',
@@ -76,7 +76,7 @@ class GetMyTimeApi(object):
         self.detect_top_level_categories()
 
     def fetch_lookups(self):
-        # time.sleep(1)
+        time.sleep(1)
 
         params = {
             'object': 'getmytime.api.managemanager',
@@ -308,7 +308,8 @@ class GetMyTimeApi(object):
         print('{:>14}{:>3}'.format(hrs, mins))
 
     def rm(self, ids, dry_run=False):
-        # time.sleep(1)
+        time.sleep(1)
+
         total = 0
 
         for id in ids:
