@@ -390,13 +390,15 @@ def main():
     parser1.set_defaults(cmd='ls')
 
     parser2 = subparsers.add_parser('rm')
-    parser2.add_argument('ids', type=int, nargs='*')
+    parser2.add_argument('ids', type=int, nargs='*',
+                         help='(defaults to stdin if empty)')
     parser2.add_argument('--dry-run', action='store_true',
                          help='do nothing destructive (useful for testing)')
     parser2.set_defaults(cmd='rm')
 
     parser3 = subparsers.add_parser('import')
-    parser3.add_argument('file', nargs='?', default='-')
+    parser3.add_argument('file', nargs='?', default='-',
+                         help='timesheet records JSON (defaults to stdin)')
     parser3.add_argument('--dry-run', action='store_true',
                          help='do nothing destructive (useful for testing)')
     parser3.add_argument('-f', '--force', action='store_true',
