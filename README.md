@@ -12,6 +12,31 @@ The following environmental variables are required:
 * `GETMYTIME_USERNAME`
 * `GETMYTIME_PASSWORD`
 
+### Install
+
+#### With Docker
+
+```sh
+./scripts/build.sh
+./scripts/run.sh
+```
+
+#### Without Docker
+
+Install system dependencies:
+
+```sh
+sudo apt-get install -y gcc
+sudo apt-get install -y libffi-dev
+sudo apt-get install -y libssl-dev
+```
+
+Install Python dependencies.
+
+```sh
+pip install -r requirements.txt
+```
+
 ### Usage
 
 ```bash
