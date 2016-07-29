@@ -246,6 +246,12 @@ class GetMyTimeApi(object):
             hrs, mins = self.format_minutes(minutes)
             customerId = row['intClientJobListID']
             taskId = row['intTaskListID']
+
+            entry_date = datetime.strptime(row['dtmTimeWorkedDate'],
+                                           '%m/%d/%Y %I:%M:%S %p')
+
+            entry_week = entry_date - timedelta(days=entry_date.weekday())
+
             yield {
                 'id': row['intTimeEntryID'],
                 'billable': 'Yes' if row['blnBillable'] == 'True' else 'No ',
@@ -255,8 +261,8 @@ class GetMyTimeApi(object):
                 'customer': customers[customerId],
                 'task': tasks[taskId],
                 'comments': row['strComments'].replace('\n', ' '),
-                'entry_date': datetime.strptime(row['dtmTimeWorkedDate'],
-                                                '%m/%d/%Y %I:%M:%S %p'),
+                'entry_date': entry_date,
+                'entry_week': entry_week,
                 'minutes': minutes,
                 'minutes_str': mins,
                 'hours_str': hrs,
@@ -293,19 +299,46 @@ class GetMyTimeApi(object):
             log.error('Invalid template: Time entries do not have a "{}" field.'.format(ex.message))
         sys.stdout.flush()
 
-    def ls_total(self, entries):
+    def ls_total(self, entries, args):
         grand_total = 0
-        by_date = lambda entry: entry['entry_date']
-        entries_by_date = itertools.groupby(entries, key=by_date)
-        for entry_date, entries in entries_by_date:
+
+        entries = list(entries)
+        customer_maxlen = max(len(entry['customer']) for entry in entries)
+
+        group_by_fields = args.group_by.split(',') if args.group_by \
+            else ['entry_date']
+
+        row_fmt = []
+        for field in group_by_fields:
+            if field == 'entry_date':
+                row_fmt.append('{0:%Y-%m-%d}')
+            elif field == 'entry_week':
+                row_fmt.append('{1:%Y-%m-%d}')
+            elif field == 'customer':
+                row_fmt.append('{2:<' + str(customer_maxlen) + '}')
+        row_fmt = ' '.join(row_fmt) + ' {3:>3}{4:>3}'
+
+        entry_key = lambda entry: tuple(entry[k] for k in group_by_fields)
+        entries = sorted(entries, key=entry_key)
+        grouped_entries = itertools.groupby(entries, key=entry_key)
+
+        for key, entries in grouped_entries:
+            entries = list(entries)
+
+            entry_date = entries[0]['entry_date']
+            entry_week = entries[0]['entry_week']
+            customer = entries[0]['customer']
+
             total = sum(entry['minutes'] for entry in entries)
             hrs, mins = self.format_minutes(total)
             grand_total += total
-            print('{:%Y-%m-%d} {:>3}{:>3}'.format(entry_date, hrs, mins))
+
+            print(row_fmt.format(entry_date, entry_week, customer, hrs, mins))
+
         sys.stdout.flush()
 
         hrs, mins = self.format_minutes(grand_total)
-        print('{:>14}{:>3}'.format(hrs, mins))
+        print('{:}{:>3}'.format(hrs, mins))
 
     def rm(self, ids, dry_run=False):
         time.sleep(1)
@@ -387,6 +420,8 @@ def main():
                          help='custom template per time entry')
     parser1.add_argument('--total', action='store_true',
                          help='show daily and weekly totals')
+    parser1.add_argument('--group-by',
+                         help='group totals by entry_date, entry_week, or customer')
     parser1.set_defaults(cmd='ls')
 
     parser2 = subparsers.add_parser('rm')
@@ -424,7 +459,7 @@ def main():
             entries = api.fetch_entries(start_date, end_date)
 
             if args.total:
-                api.ls_total(entries)
+                api.ls_total(entries, args)
             else:
                 api.ls(entries,
                        show_comments=args.comments,
