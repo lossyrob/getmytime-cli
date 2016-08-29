@@ -21,7 +21,7 @@ latest_entry_date() {
     while true; do
         result=$($SCRIPTS/run.sh ls --tmpl "{entry_date:%Y-%m-%d}" $(date -d "-$i week" +"%Y-%m-%d") | tail -n 1)
 
-        if [[ "$result" != *"No Record(s) found"* ]] ; then
+        if [[ "$result" != "" ]] ; then
             echo $result
             break
         fi

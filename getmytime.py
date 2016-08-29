@@ -151,7 +151,7 @@ class GetMyTimeApi(object):
                 rows = payload['rows']
             except KeyError:
                 # No records were found.
-                raise GetMyTimeError(payload)
+                break
 
             by_date = lambda entry: entry['entry_date']
             entries = self.parse_entries(rows)
