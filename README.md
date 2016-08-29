@@ -1,9 +1,11 @@
 # GetMyTime CLI
 
-This is the unofficial command line interface for [GetMyTime](http://www.getmytime.com).
+[![Docker Repository on Quay](https://quay.io/repository/kdeloach/getmytime-cli/status "Docker Repository on Quay")](https://quay.io/repository/kdeloach/getmytime-cli)
+
+Command line interface for [GetMyTime](http://www.getmytime.com).
 Basic functionality exists to list, delete, and create timesheet records.
 
-Designed to work with [Hamster GetMyTime](https://github.com/kdeloach/hamster-getmytime)!
+Works great with [Hamster GetMyTime](https://github.com/kdeloach/hamster-getmytime).
 
 ### Setup
 
