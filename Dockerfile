@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY api.py /usr/src
 COPY getmytime.py /usr/src
+COPY getmytime-edit.py /usr/src
 
 WORKDIR /usr/src
 
