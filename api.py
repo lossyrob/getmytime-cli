@@ -8,7 +8,6 @@ import sys
 import time
 import logging
 import requests
-import itertools
 
 from datetime import datetime, timedelta
 
@@ -16,6 +15,13 @@ from datetime import datetime, timedelta
 log = logging.getLogger(__name__)
 log.addHandler(logging.StreamHandler(sys.stderr))
 log.setLevel(logging.DEBUG)
+
+
+def format_minutes(minutes):
+    hours = minutes // 60
+    minutes -= hours * 60
+    return (str(hours) + 'h' if hours > 0 else '',
+            str(minutes) + 'm' if minutes > 0 else '')
 
 
 def lowerCaseKeys(d):
@@ -148,15 +154,6 @@ class GetMyTimeAPI(object):
 
             curdate += timedelta(days=7)
 
-    def create(self, entries, **flags):
-        yield 'Importing {} entries...'.format(len(entries))
-        for entry in entries:
-            record = {}
-            record.update(entry)
-            record.update(flags)
-            self.create_time_entry(**record)
-        yield 'Done'
-
     def create_time_entry(self, startdate, enddate, customer, activity,
                           comments, tags, minutes, dry_run=False, force=False):
         customers = self.lookupByName['customers']
@@ -228,7 +225,7 @@ class GetMyTimeAPI(object):
         tasks = self.lookupById['tasks']
         for row in rows:
             minutes = int(row['intMinutes'])
-            hrs, mins = self.format_minutes(minutes)
+            hrs, mins = format_minutes(minutes)
             customerId = row['intClientJobListID']
             taskId = row['intTaskListID']
 
@@ -253,85 +250,14 @@ class GetMyTimeAPI(object):
                 'hours_str': hrs,
             }
 
-    def format_minutes(self, minutes):
-        hours = minutes // 60
-        minutes -= hours * 60
-        return (str(hours) + 'h' if hours > 0 else '',
-                str(minutes) + 'm' if minutes > 0 else '')
-
-    def get_ls_tmpl(self, show_comments, oneline):
-        if oneline:
-            tmpl = '{id} {entry_date:%Y-%m-%d} {approved_sym}{billable_sym} ' \
-                   '{hours_str:>3}{minutes_str:>3} {customer} > {task}'
-            if show_comments:
-                tmpl += '; Notes: {comments}'
-        else:
-            tmpl = 'ID: {id}\nDate: {entry_date:%Y-%m-%d}\nBillable: {billable}\n' \
-                   'Approved: {approved}\nCustomer: {customer}\nTask: {task}\n' \
-                   'Duration: {hours_str}{minutes_str}\nNotes: {comments}\n'
-        return tmpl
-
-    def ls(self, entries, show_comments=False, oneline=False, custom_tmpl=None):
-        if custom_tmpl:
-            tmpl = custom_tmpl
-        else:
-            tmpl = self.get_ls_tmpl(show_comments, oneline)
-
-        try:
-            for entry in entries:
-                yield tmpl.format(**entry)
-        except KeyError as ex:
-            log.error('Invalid template: Time entries do not have a "{}" field.'.format(ex.message))
-
-    def ls_total(self, entries, args):
-        grand_total = 0
-
-        entries = list(entries)
-        customer_maxlen = max(len(entry['customer']) for entry in entries)
-
-        group_by_fields = args.group_by.split(',') if args.group_by \
-            else ['entry_date']
-
-        row_fmt = []
-        for field in group_by_fields:
-            if field == 'entry_date':
-                row_fmt.append('{0:%Y-%m-%d}')
-            elif field == 'entry_week':
-                row_fmt.append('{1:%Y-%m-%d}')
-            elif field == 'customer':
-                row_fmt.append('{2:<' + str(customer_maxlen) + '}')
-        row_fmt = ' '.join(row_fmt) + ' {3:>3}{4:>3}'
-
-        entry_key = lambda entry: tuple(entry[k] for k in group_by_fields)
-        entries = sorted(entries, key=entry_key)
-        grouped_entries = itertools.groupby(entries, key=entry_key)
-
-        for key, entries in grouped_entries:
-            entries = list(entries)
-
-            entry_date = entries[0]['entry_date']
-            entry_week = entries[0]['entry_week']
-            customer = entries[0]['customer']
-
-            total = sum(entry['minutes'] for entry in entries)
-            hrs, mins = self.format_minutes(total)
-            grand_total += total
-
-            yield row_fmt.format(entry_date, entry_week, customer, hrs, mins)
-
-        hrs, mins = self.format_minutes(grand_total)
-        yield '{:}{:>3}'.format(hrs, mins)
-
     def rm(self, ids, dry_run=False):
-        time.sleep(1)
-
-        total = 0
-
         for id in ids:
             log.debug('Deleting {}'.format(id))
 
             if dry_run:
                 continue
+
+            time.sleep(1)
 
             params = {
                 'object': 'getmytime.api.timeentrymanager',
@@ -350,6 +276,3 @@ class GetMyTimeAPI(object):
                 raise GetMyTimeError(payload)
 
             log.info(r.text)
-            total += 1
-
-        yield 'Deleted {} record(s)'.format(total)

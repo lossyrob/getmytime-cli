@@ -11,10 +11,11 @@ import json
 import argparse
 import logging
 import fileinput
+import itertools
 
 from datetime import date, datetime, timedelta
 
-from api import GetMyTimeAPI, InvalidTimeEntryError, GetMyTimeError
+from api import GetMyTimeAPI, InvalidTimeEntryError, GetMyTimeError, format_minutes
 
 
 ID_REGEX = re.compile('(?P<id>\d{8})')
@@ -58,6 +59,82 @@ def get_date_range(args):
         end_date = start_date + timedelta(days=7)
 
     return start_date, end_date
+
+
+def get_ls_tmpl(show_comments, oneline):
+    if oneline:
+        tmpl = '{id} {entry_date:%Y-%m-%d} {approved_sym}{billable_sym} ' \
+               '{hours_str:>3}{minutes_str:>3} {customer} > {task}'
+        if show_comments:
+            tmpl += '; Notes: {comments}'
+    else:
+        tmpl = 'ID: {id}\nDate: {entry_date:%Y-%m-%d}\nBillable: {billable}\n' \
+               'Approved: {approved}\nCustomer: {customer}\nTask: {task}\n' \
+               'Duration: {hours_str}{minutes_str}\nNotes: {comments}\n'
+    return tmpl
+
+
+def ls(entries, show_comments=False, oneline=False, custom_tmpl=None):
+    if custom_tmpl:
+        tmpl = custom_tmpl
+    else:
+        tmpl = get_ls_tmpl(show_comments, oneline)
+
+    try:
+        for entry in entries:
+            print(tmpl.format(**entry))
+    except KeyError as ex:
+        log.error('Invalid template: Time entries do not have a "{}" field.'.format(ex.message))
+
+
+def ls_total(entries, args):
+    grand_total = 0
+
+    entries = list(entries)
+    customer_maxlen = max(len(entry['customer']) for entry in entries)
+
+    group_by_fields = args.group_by.split(',') if args.group_by \
+        else ['entry_date']
+
+    row_fmt = []
+    for field in group_by_fields:
+        if field == 'entry_date':
+            row_fmt.append('{0:%Y-%m-%d}')
+        elif field == 'entry_week':
+            row_fmt.append('{1:%Y-%m-%d}')
+        elif field == 'customer':
+            row_fmt.append('{2:<' + str(customer_maxlen) + '}')
+    row_fmt = ' '.join(row_fmt) + ' {3:>3}{4:>3}'
+
+    entry_key = lambda entry: tuple(entry[k] for k in group_by_fields)
+    entries = sorted(entries, key=entry_key)
+    grouped_entries = itertools.groupby(entries, key=entry_key)
+
+    for key, entries in grouped_entries:
+        entries = list(entries)
+
+        entry_date = entries[0]['entry_date']
+        entry_week = entries[0]['entry_week']
+        customer = entries[0]['customer']
+
+        total = sum(entry['minutes'] for entry in entries)
+        hrs, mins = format_minutes(total)
+        grand_total += total
+
+        print(row_fmt.format(entry_date, entry_week, customer, hrs, mins))
+
+    hrs, mins = format_minutes(grand_total)
+    print('{:}{:>3}'.format(hrs, mins))
+
+
+def create_entries(api, entries, **flags):
+    print('Importing {} entries...'.format(len(entries)))
+    for entry in entries:
+        record = {}
+        record.update(entry)
+        record.update(flags)
+        api.create_time_entry(**record)
+    print('Done')
 
 
 def main():
@@ -118,30 +195,22 @@ def main():
             entries = api.fetch_entries(start_date, end_date)
 
             if args.total:
-                output = api.ls_total(entries, args)
-                for line in output:
-                    print(line)
+                ls_total(entries, args)
             else:
-                output = api.ls(entries,
-                                show_comments=args.comments,
-                                oneline=args.oneline,
-                                custom_tmpl=args.tmpl)
-                for line in output:
-                    print(line)
+                ls(entries,
+                   show_comments=args.comments,
+                   oneline=args.oneline,
+                   custom_tmpl=args.tmpl)
 
         elif args.cmd == 'rm':
             ids = args.ids if args.ids else detect_ids(fileinput.input('-'))
-            output = api.rm(ids, dry_run=args.dry_run)
-            for line in output:
-                print(line)
+            api.rm(ids, dry_run=args.dry_run)
 
         elif args.cmd == 'import':
             lines = fileinput.input(args.file)
             contents = ''.join(lines)
             entries = json.loads(contents)
-            output = api.create(entries, dry_run=args.dry_run, force=args.force)
-            for line in output:
-                print(line)
+            create_entries(api, entries, dry_run=args.dry_run, force=args.force)
 
         elif args.cmd == 'lookups':
             if args.raw:
