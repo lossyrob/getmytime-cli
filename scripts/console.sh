@@ -7,6 +7,6 @@ ARGS=$*
 docker run -ti --rm \
     -e GETMYTIME_USERNAME=$GETMYTIME_USERNAME \
     -e GETMYTIME_PASSWORD=$GETMYTIME_PASSWORD \
-    -v $PWD:/opt \
+    -v $PWD:/usr/src \
     --entrypoint bash \
     kdeloach/getmytime-cli
