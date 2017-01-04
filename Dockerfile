@@ -6,6 +6,7 @@ RUN pip install --upgrade pip
 COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
+COPY api.py /usr/src
 COPY getmytime.py /usr/src
 
 WORKDIR /usr/src
