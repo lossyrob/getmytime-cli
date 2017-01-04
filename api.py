@@ -4,7 +4,6 @@ from __future__ import print_function
 from __future__ import unicode_literals
 from __future__ import division
 
-import sys
 import time
 import logging
 import requests
@@ -13,8 +12,6 @@ from datetime import datetime, timedelta
 
 
 log = logging.getLogger(__name__)
-log.addHandler(logging.StreamHandler(sys.stderr))
-log.setLevel(logging.DEBUG)
 
 
 def format_minutes(minutes):
@@ -45,8 +42,6 @@ class GetMyTimeAPI(object):
     URL = 'https://app.getmytime.com/service.aspx'
 
     def login(self, username, password):
-        time.sleep(1)
-
         params = {
             'object': 'getmytime.api.usermanager',
             'method': 'login',
@@ -57,7 +52,12 @@ class GetMyTimeAPI(object):
         }
 
         r = requests.post(self.URL, params=params, data=form_data)
-        payload = r.json()
+
+        try:
+            payload = r.json()
+        except ValueError as ex:
+            log.error('Error logging in. Is getmytime.com down?')
+            raise GetMyTimeError(ex)
 
         if 'error' in payload:
             raise GetMyTimeError(payload)
@@ -67,8 +67,6 @@ class GetMyTimeAPI(object):
         self.detect_top_level_categories()
 
     def fetch_lookups(self):
-        time.sleep(1)
-
         params = {
             'object': 'getmytime.api.managemanager',
             'method': 'fetchLookups',
@@ -83,25 +81,24 @@ class GetMyTimeAPI(object):
         payload = r.json()
         self.lookups = payload
 
-        lookup = lambda k, a, b: dict((row[a], row[b])
-                                      for row in payload[k]['rows'])
-
         self.lookupById = {
-            'tasks': unescape(lookup('serviceitems',
-                                     'intTaskListID',
-                                     'strTaskName')),
-            'customers': unescape(lookup('customerjobs',
-                                         'intClientJobListID',
-                                         'strClientJobName')),
+            'tasks': unescape(
+                {row['intTaskListID']: row['strTaskName']
+                    for row in payload['serviceitems']['rows']}),
+            'customers': unescape(
+                {row['intClientJobListID']: row['strClientJobName']
+                    for row in payload['customerjobs']['rows']}),
         }
         self.lookupByName = {
-            'tasks': lowerCaseKeys(unescape(lookup('serviceitems',
-                                                   'strTaskName',
-                                                   'intTaskListID'))),
-            'customers': lowerCaseKeys(unescape(lookup('customerjobs',
-                                                       'strClientJobName',
-                                                       'intClientJobListID'))),
+            'tasks': lowerCaseKeys(unescape(
+                {row['strTaskName']: row['intTaskListID']
+                    for row in payload['serviceitems']['rows']})),
+            'customers': lowerCaseKeys(unescape(
+                {row['strClientJobName']: row['intClientJobListID']
+                    for row in payload['customerjobs']['rows']})),
         }
+
+        time.sleep(1)
 
     def detect_top_level_categories(self):
         tasks = self.lookupById['tasks'].values()
@@ -119,8 +116,6 @@ class GetMyTimeAPI(object):
         curdate = start_date
 
         while curdate < end_date:
-            time.sleep(1)
-
             params = {
                 'object': 'getmytime.api.timeentrymanager',
                 'method': 'fetchTimeEntries',
@@ -153,17 +148,26 @@ class GetMyTimeAPI(object):
                     yield entry
 
             curdate += timedelta(days=7)
+            time.sleep(1)
 
     def create_time_entry(self, startdate, enddate, customer, activity,
                           comments, tags, minutes, dry_run=False, force=False):
+        minutes = int(minutes)
+        employeeid = self.cookies['userid']
+
         customers = self.lookupByName['customers']
+        try:
+            customerid = customers[customer.lower()]
+        except KeyError:
+            raise InvalidTimeEntryError('Invalid customer "{}"'.format(customer))
+
         tasks = self.lookupByName['tasks']
+        try:
+            taskid = tasks[activity.lower()]
+        except KeyError:
+            raise InvalidTimeEntryError('Invalid activity "{}"'.format(activity))
 
         tags = tags if tags else []
-
-        employeeid = self.cookies['userid']
-        customerid = customers[customer.lower()]
-        taskid = tasks[activity.lower()]
         billable = 'billable' in tags
 
         params = {
@@ -184,6 +188,7 @@ class GetMyTimeAPI(object):
             'starttimer': 'false',
         }
 
+        log.debug(form_data)
         log.info('Submitting {} {} {}; Notes: {}'.format(
             startdate, customer, activity, comments))
 
@@ -209,23 +214,29 @@ class GetMyTimeAPI(object):
             raise InvalidTimeEntryError('Consider using "Indirect - Admin:Personnel/Hiring" for this entry.'
                                         ' (Use `--force` to override this rule)')
 
-        if not dry_run:
-            r = requests.post(self.URL, params=params, data=form_data,
-                              cookies=self.cookies)
+        if dry_run:
+            return
 
-            payload = r.json()
+        r = requests.post(self.URL, params=params, data=form_data,
+                          cookies=self.cookies)
 
-            if 'error' in payload:
-                raise GetMyTimeError(payload)
+        payload = r.json()
+        log.debug(payload)
 
-            time.sleep(1)
+        if 'error' in payload:
+            raise GetMyTimeError(payload)
+
+        time.sleep(1)
 
     def parse_entries(self, rows):
         customers = self.lookupById['customers']
         tasks = self.lookupById['tasks']
         for row in rows:
             minutes = int(row['intMinutes'])
-            hrs, mins = format_minutes(minutes)
+            hours = minutes / 60.0
+
+            hour_str, minute_str = format_minutes(minutes)
+
             customerId = row['intClientJobListID']
             taskId = row['intTaskListID']
 
@@ -234,45 +245,52 @@ class GetMyTimeAPI(object):
 
             entry_week = entry_date - timedelta(days=entry_date.weekday())
 
+            is_billable = row['blnBillable'] == 'True'
+            is_approved = row['blnApproved'] == 'True'
+
             yield {
                 'id': row['intTimeEntryID'],
-                'billable': 'Yes' if row['blnBillable'] == 'True' else 'No ',
-                'approved': 'Yes' if row['blnApproved'] == 'True' else 'No ',
-                'billable_sym': '$' if row['blnBillable'] == 'True' else ' ',
-                'approved_sym': '*' if row['blnApproved'] == 'True' else ' ',
+                'is_billable': is_billable,
+                'is_approved': is_approved,
+                'billable': 'Yes' if is_billable else 'No ',
+                'approved': 'Yes' if is_approved else 'No ',
+                'billable_sym': '$' if is_billable else ' ',
+                'approved_sym': '*' if is_approved else ' ',
                 'customer': customers[customerId],
                 'task': tasks[taskId],
                 'comments': row['strComments'].replace('\n', ' '),
                 'entry_date': entry_date,
                 'entry_week': entry_week,
                 'minutes': minutes,
-                'minutes_str': mins,
-                'hours_str': hrs,
+                'minutes_str': minute_str,
+                'hours': hours,
+                'hours_str': hour_str,
             }
 
     def rm(self, ids, dry_run=False):
         for id in ids:
-            log.debug('Deleting {}'.format(id))
+            self.delete_entry(id, dry_run=dry_run)
 
-            if dry_run:
-                continue
+    def delete_entry(self, id, dry_run=False):
+        log.info('Deleting {}'.format(id))
 
-            time.sleep(1)
+        if dry_run:
+            return
 
-            params = {
-                'object': 'getmytime.api.timeentrymanager',
-                'method': 'deleteTimeEntry',
-            }
-            form_data = {
-                'timeentryid': id,
-            }
+        params = {
+            'object': 'getmytime.api.timeentrymanager',
+            'method': 'deleteTimeEntry',
+        }
+        form_data = {
+            'timeentryid': id,
+        }
 
-            r = requests.post(self.URL, params=params, data=form_data,
-                              cookies=self.cookies)
+        r = requests.post(self.URL, params=params, data=form_data,
+                          cookies=self.cookies)
+        payload = r.json()
 
-            payload = r.json()
+        if 'error' in payload:
+            raise GetMyTimeError(payload)
 
-            if 'error' in payload:
-                raise GetMyTimeError(payload)
-
-            log.info(r.text)
+        log.debug(r.text)
+        time.sleep(1)
