@@ -7,42 +7,39 @@ Basic functionality exists to list, delete, and create timesheet records.
 
 Works great with [Hamster GetMyTime](https://github.com/kdeloach/hamster-getmytime).
 
-### Setup
+## Quick Start
 
-The following environmental variables are required:
-
-* `GETMYTIME_USERNAME`
-* `GETMYTIME_PASSWORD`
-
-### Install
-
-#### With Docker
-
-```sh
-./scripts/build.sh
-./scripts/run.sh
+```
+docker run --rm -ti \
+    -e GETMYTIME_USERNAME=username \
+    -e GETMYTIME_PASSWORD=password \
+    --entrypoint bash \
+    quay.io/kdeloach/getmytime-cli
 ```
 
-#### Without Docker
+## Setup
 
-Install system dependencies:
+Docker is required.
+
+Required environment variables:
+
+|                      |
+| -------------------  |
+| `GETMYTIME_USERNAME` |
+| `GETMYTIME_PASSWORD` |
+
+Run these commands:
 
 ```sh
-sudo apt-get install -y gcc
-sudo apt-get install -y libffi-dev
-sudo apt-get install -y libssl-dev
+./scripts/update.sh
+./scripts/console.sh
 ```
 
-Install Python dependencies.
+## Usage
 
-```sh
-pip install -r requirements.txt
-```
-
-### Usage
+### getmytime.py
 
 ```bash
-> ./getmytime.py ls -h
 usage: getmytime.py ls [-h] [--today] [--comments] [--oneline] [--tmpl TMPL]
                        [--total]
                        [startdate] [enddate]
@@ -62,7 +59,6 @@ optional arguments:
 ```
 
 ```bash
-> ./getmytime.py rm -h
 usage: getmytime.py rm [-h] [--dry-run] [ids [ids ...]]
 
 positional arguments:
@@ -74,7 +70,6 @@ optional arguments:
 ```
 
 ```bash
-> ./getmytime.py import -h
 usage: getmytime.py import [-h] [--dry-run] [-f] [file]
 
 positional arguments:
@@ -87,10 +82,42 @@ optional arguments:
 ```
 
 ```bash
-> ./getmytime.py lookups -h
 usage: getmytime.py lookups [-h] [--raw]
 
 optional arguments:
   -h, --help  show this help message and exit
   --raw       output raw values from server
+```
+
+### getmytime-edit.py
+
+```
+usage: getmytime-edit.py download [-h] date
+
+positional arguments:
+  date        List entries for specified week
+
+optional arguments:
+  -h, --help  show this help message and exit
+```
+
+```
+usage: getmytime-edit.py upload [-h] [--dry-run] filename
+
+positional arguments:
+  filename    Timesheet csv
+
+optional arguments:
+  -h, --help  show this help message and exit
+  --dry-run   Preview changes
+```
+
+```
+usage: getmytime-edit.py lookups [-h] {customer,activity}
+
+positional arguments:
+  {customer,activity}  Download specified lookups
+
+optional arguments:
+  -h, --help           show this help message and exit
 ```
