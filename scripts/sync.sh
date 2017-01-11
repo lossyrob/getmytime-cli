@@ -10,8 +10,9 @@
 ARGS=$*
 
 SCRIPTS=$(dirname $0)
-HAMSTER=$SCRIPTS/../../hamster-getmytime/hamster.py
 GETMYTIME=$SCRIPTS/../getmytime.py
+
+HAMSTER=/usr/hamster/hamster.py
 
 latest_entry_date() {
     i=0
@@ -19,7 +20,7 @@ latest_entry_date() {
     # Fetch getmytime.com entries 1 week at a time to find the
     # latest entry date.
     while true; do
-        result=$($SCRIPTS/run.sh ls --tmpl "{entry_date:%Y-%m-%d}" $(date -d "-$i week" +"%Y-%m-%d") | tail -n 1)
+        result=$($GETMYTIME ls --tmpl "{entry_date:%Y-%m-%d}" $(date -d "-$i week" +"%Y-%m-%d") | tail -n 1)
 
         if [[ "$result" != "" ]] ; then
             echo $result

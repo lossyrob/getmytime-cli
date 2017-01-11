@@ -16,13 +16,12 @@ import itertools
 from datetime import date, datetime, timedelta
 
 from api import GetMyTimeAPI, InvalidTimeEntryError, GetMyTimeError, format_minutes
+from api import log as api_log
 
 
 ID_REGEX = re.compile('(?P<id>\d{8})')
 
 log = logging.getLogger(__name__)
-log.addHandler(logging.StreamHandler(sys.stderr))
-log.setLevel(logging.DEBUG)
 
 
 def getenv(key):
@@ -138,6 +137,11 @@ def create_entries(api, entries, **flags):
 
 
 def main():
+    log.addHandler(logging.StreamHandler(sys.stderr))
+    api_log.addHandler(logging.StreamHandler(sys.stderr))
+    log.setLevel(logging.INFO)
+    api_log.setLevel(logging.INFO)
+
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(help='sub-command help')
 
