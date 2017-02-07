@@ -196,12 +196,17 @@ class GetMyTimeAPI(object):
             raise InvalidTimeEntryError('Comments field may not be empty')
 
         if activity.lower() in self.topLevelCategories['tasks']:
-            raise InvalidTimeEntryError('Not allowed to use top level '
-                                        'category "{}"'.format(activity))
+            raise InvalidTimeEntryError('Not allowed to use top level category'
+                                        ' for activity "{}"'.format(activity))
 
-        if customer.lower() in self.topLevelCategories['customers']:
-            raise InvalidTimeEntryError('Not allowed to use top level '
-                                        'category "{}"'.format(customer))
+        # Note that "Azavea Administrative" has not traditionally been a "top
+        # level category". There have been some recent changes to this
+        # category so this check can be considered a bandaid until those
+        # issues are resolved.
+        if customer.lower() in self.topLevelCategories['customers'] \
+                and customer.lower() != 'azavea administrative':
+            raise InvalidTimeEntryError('Not allowed to use top level category'
+                                        ' for customer "{}"'.format(customer))
 
         if (not force and
                 activity.lower() == 'Indirect - Admin:Miscellaneous'.lower()):
