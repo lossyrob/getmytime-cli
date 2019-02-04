@@ -22,12 +22,12 @@ def format_minutes(minutes):
 
 
 def lowerCaseKeys(d):
-    return dict((k.lower(), v) for k, v in d.iteritems())
+    return dict((k.lower(), v) for k, v in d.items())
 
 
 def unescape(d):
     return dict((k.replace('&amp;', '&'),
-                 v.replace('&amp;', '&')) for k, v in d.iteritems())
+                 v.replace('&amp;', '&')) for k, v in d.items())
 
 
 class GetMyTimeError(Exception):
@@ -213,11 +213,11 @@ class GetMyTimeAPI(object):
             raise InvalidTimeEntryError('Never use "Indirect - Admin:Miscellaenous"!'
                                         ' (Use `--force` to override this rule)')
 
-        if (not force and
-                ('interview' in comments or 'presentation' in comments) and
-                'hiring' not in activity.lower()):
-            raise InvalidTimeEntryError('Consider using "Indirect - Admin:Personnel/Hiring" for this entry.'
-                                        ' (Use `--force` to override this rule)')
+        # if (not force and
+        #         ('interview' in comments or 'presentation' in comments) and
+        #         'hiring' not in activity.lower()):
+        #     raise InvalidTimeEntryError('Consider using "Indirect - Admin:Personnel/Hiring" for this entry.'
+        #                                 ' (Use `--force` to override this rule)')
 
         if dry_run:
             return

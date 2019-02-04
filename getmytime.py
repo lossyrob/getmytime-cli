@@ -190,6 +190,10 @@ def main():
     username = getenv('GETMYTIME_USERNAME')
     password = getenv('GETMYTIME_PASSWORD')
 
+    if not hasattr(args, 'cmd'):
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
     try:
         api = GetMyTimeAPI()
         api.login(username, password)

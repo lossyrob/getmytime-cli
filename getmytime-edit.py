@@ -50,9 +50,9 @@ def find_entry(api, row, dry_run=False):
     entries = api.fetch_entries(startdate, enddate)
 
     for entry in entries:
-        match = unicode(row['Customer']) == unicode(entry['customer']) and \
-            unicode(row['Activity']) == unicode(entry['task']) and \
-            unicode(row['Hours']) == unicode(entry['hours'])
+        match = (row['Customer']) == (entry['customer']) and \
+            (row['Activity']) == (entry['task']) and \
+            (row['Hours']) == (entry['hours'])
         if match:
             return entry
 
@@ -66,7 +66,7 @@ def handle_create_entry(api, row, dry_run=False):
         raise Exception('ERROR: Expected Hours column to contain a valid number')
 
     minutes = int(hours * 60)
-    tags = ['billable'] if row['Billable'] == 'Billable' else []
+    tags = ['billable'] if row['Billable'] == 'Y' else []
 
     api.create_time_entry(
         startdate=row['Date'],
@@ -131,6 +131,8 @@ def cmd_upload(args, api):
         writer.writeheader()
 
         for row in reader:
+            if row['ID'] == 'X':
+                continue
             try:
                 handle_row_action(api, row, dry_run=args.dry_run)
 
@@ -189,7 +191,7 @@ def cmd_download(args, api):
         log.error('Unable to parse date format "{}"'.format(args.date))
         sys.exit(1)
 
-    end_date = start_date + timedelta(days=7)
+    end_date = start_date + timedelta(days=60)
     entries = api.fetch_entries(start_date, end_date)
 
     w = csv.DictWriter(sys.stdout, fieldnames=TIMESHEET_CSV_FIELDS)
